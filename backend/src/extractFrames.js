@@ -1,3 +1,12 @@
+// =============================================================
+// extractFrames_v2.js
+// Version : 2.0
+// Date    : 2026-07-05
+// Changes : - Replace eval() with safe parseFps() function
+//           - Find video stream explicitly (skip audio streams)
+//           - Validate duration before processing
+//           - Clearer error if 0 frames extracted
+// =============================================================
 const ffmpeg = require('fluent-ffmpeg');
 const sharp = require('sharp');
 const path = require('path');
@@ -5,33 +14,58 @@ const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
 /**
+ * Parse fractional frame rate string like "30/1" or "60000/1001"
+ * Safe replacement for eval()
+ */
+function parseFps(rFrameRate) {
+  if (!rFrameRate) return 30; // safe default
+  if (typeof rFrameRate === 'number') return rFrameRate;
+  const parts = rFrameRate.split('/');
+  if (parts.length === 2) {
+    const num = parseFloat(parts[0]);
+    const den = parseFloat(parts[1]);
+    if (den > 0) return num / den;
+  }
+  return parseFloat(rFrameRate) || 30;
+}
+
+/**
  * Extract frames from video using FFmpeg
  * Returns deterministic frames regardless of client device/browser
- * 
+ *
  * @param {string} videoPath - Path to uploaded video file
  * @param {number} count - Number of frames to extract (default 90)
- * @returns {Object} { frames: [{base64, index}], timestamps: [number], duration: number, outputDir: string }
+ * @returns {Object} { frames, timestamps, duration, fps, totalFrames, outputDir }
  */
 async function extractFrames(videoPath, count = 90) {
   // Step 1: Probe video metadata
   const probe = await probeVideo(videoPath);
+
   const duration = parseFloat(probe.format.duration);
-  const fps = eval(probe.streams[0].r_frame_rate); // e.g. "30/1" → 30
+  if (!duration || isNaN(duration) || duration <= 0) {
+    throw new Error(`Invalid video duration: ${probe.format.duration}`);
+  }
+
+  // Find video stream (skip audio-only streams)
+  const videoStream = probe.streams.find(s => s.codec_type === 'video');
+  if (!videoStream) throw new Error('No video stream found in file');
+
+  const fps = parseFps(videoStream.r_frame_rate || videoStream.avg_frame_rate);
   const totalFrames = Math.round(duration * fps);
-  
-  console.log(`[FFmpeg] Duration: ${duration.toFixed(3)}s, FPS: ${fps}, Total frames: ${totalFrames}`);
-  
-  // Step 2: Calculate extraction timestamps (evenly distributed)
+
+  console.log(`[FFmpeg] Duration: ${duration.toFixed(3)}s, FPS: ${fps.toFixed(2)}, Total frames: ~${totalFrames}`);
+
+  // Step 2: Calculate evenly distributed timestamps
   const interval = duration / (count + 1);
   const targetTimestamps = [];
   for (let i = 1; i <= count; i++) {
     targetTimestamps.push(parseFloat((interval * i).toFixed(4)));
   }
-  
-  // Step 3: Extract frames using FFmpeg
+
+  // Step 3: Extract frames via FFmpeg
   const outputDir = path.join('/tmp', `swingiq-frames-${uuidv4().slice(0, 8)}`);
   fs.mkdirSync(outputDir, { recursive: true });
-  
+
   await new Promise((resolve, reject) => {
     ffmpeg(videoPath)
       .outputOptions([
@@ -45,46 +79,39 @@ async function extractFrames(videoPath, count = 90) {
       .on('error', err => reject(new Error(`FFmpeg error: ${err.message}`)))
       .run();
   });
-  
-  // Step 4: Read frames and convert to base64
+
+  // Step 4: Read frames → base64
   const frames = [];
   const actualTimestamps = [];
-  
+
   for (let i = 1; i <= count; i++) {
     const framePath = path.join(outputDir, `frame_${String(i).padStart(3, '0')}.jpg`);
-    
+
     if (!fs.existsSync(framePath)) {
-      console.warn(`[FFmpeg] Missing frame: ${framePath}`);
+      console.warn(`[FFmpeg] Missing frame ${i}, skipping`);
       continue;
     }
-    
-    // Resize to 640px width for GPT (maintain aspect ratio)
+
+    // Resize to 640px wide for GPT (maintain aspect ratio)
     const resized = await sharp(framePath)
       .resize(640, null, { fit: 'inside' })
       .jpeg({ quality: 70 })
       .toBuffer();
-    
+
     const base64 = resized.toString('base64');
-    const timestamp = targetTimestamps[i - 1] || (interval * i);
-    
-    frames.push({
-      base64,
-      index: i - 1, // 0-based
-      timestamp
-    });
+    const timestamp = targetTimestamps[i - 1] ?? (interval * i);
+
+    frames.push({ base64, index: i - 1, timestamp });
     actualTimestamps.push(timestamp);
   }
-  
-  console.log(`[FFmpeg] Extracted ${frames.length} frames, timestamps: [${actualTimestamps.slice(0, 5).map(t => t.toFixed(3)).join(', ')}...${actualTimestamps.slice(-2).map(t => t.toFixed(3)).join(', ')}]`);
-  
-  return {
-    frames,
-    timestamps: actualTimestamps,
-    duration,
-    fps,
-    totalFrames,
-    outputDir
-  };
+
+  if (frames.length === 0) {
+    throw new Error('FFmpeg extracted 0 frames — check video file validity');
+  }
+
+  console.log(`[FFmpeg] Extracted ${frames.length} frames. First: ${actualTimestamps[0]?.toFixed(3)}s, Last: ${actualTimestamps.at(-1)?.toFixed(3)}s`);
+
+  return { frames, timestamps: actualTimestamps, duration, fps, totalFrames, outputDir };
 }
 
 /**
