@@ -1,73 +1,516 @@
 <!DOCTYPE html>
-<html lang="en">
+<!-- ============================================================
+     index_v2.html
+     Version : 2.0
+     Date    : 2026-07-05
+     Changes : - Full result UI (score ring, phase cards, drill box)
+               - Phase thumbnails from backend base64 frames
+               - Loading steps indicator
+               - Replaced raw JSON dump with structured display
+     ============================================================ -->
+<html lang="id">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>SwingIQ v2</title>
 <style>
-  body { font-family: system-ui; max-width: 430px; margin: 0 auto; padding: 20px; background: #0a0a0a; color: #fff; }
-  h1 span { color: #22c55e; }
-  .upload-area { border: 2px dashed #333; border-radius: 12px; padding: 40px; text-align: center; margin: 20px 0; }
-  button { background: #22c55e; color: #000; border: none; padding: 14px 28px; border-radius: 8px; font-size: 16px; font-weight: 700; cursor: pointer; width: 100%; }
-  .status { margin: 10px 0; font-size: 14px; color: #888; }
-  /* TODO: Full UI from v1 will be migrated here */
+  :root {
+    --green: #22c55e;
+    --green-dim: #16a34a;
+    --bg: #0a0a0a;
+    --surface: #141414;
+    --surface2: #1e1e1e;
+    --border: #2a2a2a;
+    --text: #f0f0f0;
+    --muted: #888;
+    --good: #22c55e;
+    --warn: #f59e0b;
+    --bad: #ef4444;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, 'Plus Jakarta Sans', sans-serif;
+    max-width: 430px;
+    margin: 0 auto;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+
+  /* ── Header ── */
+  .header {
+    padding: 20px 20px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .logo { font-size: 22px; font-weight: 800; letter-spacing: -0.5px; }
+  .logo span { color: var(--green); }
+  .badge {
+    margin-left: auto;
+    font-size: 10px;
+    font-weight: 700;
+    background: var(--green);
+    color: #000;
+    padding: 3px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── Upload Screen ── */
+  #uploadScreen { padding: 20px; }
+
+  .upload-area {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    padding: 36px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    position: relative;
+    margin-bottom: 16px;
+  }
+  .upload-area:hover, .upload-area.active {
+    border-color: var(--green);
+    background: rgba(34,197,94,0.05);
+  }
+  .upload-area input {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+  }
+  .upload-icon { font-size: 36px; margin-bottom: 10px; }
+  .upload-label { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .upload-sub { font-size: 12px; color: var(--muted); }
+  .upload-file-name {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--green);
+    font-weight: 600;
+    display: none;
+  }
+
+  .row { display: flex; gap: 10px; margin-bottom: 10px; }
+  .select-wrap { flex: 1; }
+  .select-wrap label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+  select {
+    width: 100%;
+    padding: 10px 12px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 14px;
+    appearance: none;
+    cursor: pointer;
+  }
+  select:focus { outline: none; border-color: var(--green); }
+
+  .btn-analyze {
+    width: 100%;
+    padding: 16px;
+    background: var(--green);
+    color: #000;
+    border: none;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 800;
+    cursor: pointer;
+    margin-top: 6px;
+    transition: opacity 0.15s, transform 0.1s;
+  }
+  .btn-analyze:active { transform: scale(0.98); opacity: 0.9; }
+  .btn-analyze:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── Loading Screen ── */
+  #loadingScreen { display: none; padding: 60px 20px; text-align: center; }
+  .spinner {
+    width: 48px; height: 48px;
+    border: 3px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-label { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .loading-sub { font-size: 13px; color: var(--muted); }
+
+  /* ── Result Screen ── */
+  #resultScreen { display: none; padding: 0 0 20px; }
+
+  /* Score Hero */
+  .score-hero {
+    background: var(--surface);
+    padding: 28px 20px 24px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .score-ring {
+    width: 100px; height: 100px;
+    border-radius: 50%;
+    border: 6px solid var(--green);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 14px;
+    flex-direction: column;
+  }
+  .score-number { font-size: 32px; font-weight: 800; color: var(--green); line-height: 1; }
+  .score-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+  .score-insight { font-size: 14px; line-height: 1.55; color: var(--text); max-width: 320px; margin: 0 auto 10px; }
+  .score-time { font-size: 11px; color: var(--muted); }
+
+  /* Focus Fault */
+  .focus-fault {
+    margin: 14px 20px;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.25);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .fault-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: var(--bad); font-weight: 700; margin-bottom: 4px; }
+  .fault-title { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+  .fault-sub { font-size: 13px; color: var(--muted); }
+
+  /* Section */
+  .section { padding: 0 20px; margin-top: 20px; }
+  .section-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; margin-bottom: 10px; }
+
+  /* Phase Cards */
+  .phase-grid { display: flex; flex-direction: column; gap: 8px; }
+  .phase-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .phase-thumb {
+    width: 56px; height: 42px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+    background: var(--surface2);
+  }
+  .phase-info { flex: 1; min-width: 0; }
+  .phase-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .phase-tag { font-size: 10px; font-weight: 700; background: var(--surface2); padding: 2px 7px; border-radius: 4px; color: var(--muted); }
+  .phase-name { font-size: 13px; font-weight: 600; flex: 1; }
+  .phase-score { font-size: 13px; font-weight: 700; }
+  .phase-feedback { font-size: 12px; color: var(--muted); line-height: 1.4; }
+  .status-good { color: var(--good); }
+  .status-warn { color: var(--warn); }
+  .status-bad { color: var(--bad); }
+
+  /* Strengths / Improvements */
+  .pill-list { display: flex; flex-wrap: wrap; gap: 7px; }
+  .pill {
+    font-size: 12px; padding: 5px 12px; border-radius: 20px; font-weight: 500;
+  }
+  .pill-good { background: rgba(34,197,94,0.12); color: var(--good); }
+  .pill-bad { background: rgba(239,68,68,0.12); color: var(--bad); }
+
+  /* Coach Box */
+  .coach-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .coach-drill { font-size: 13px; font-weight: 700; color: var(--green); margin-bottom: 4px; }
+  .coach-text { font-size: 13px; color: var(--muted); line-height: 1.5; }
+
+  /* Angle Table */
+  .angle-row {
+    display: flex; align-items: center;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    gap: 10px;
+  }
+  .angle-row:last-child { border-bottom: none; }
+  .angle-phase { font-size: 11px; font-weight: 700; color: var(--muted); width: 24px; }
+  .angle-metric { font-size: 13px; flex: 1; }
+  .angle-val { font-size: 13px; font-weight: 700; }
+  .angle-ideal { font-size: 11px; color: var(--muted); }
+
+  /* Back button */
+  .btn-back {
+    margin: 14px 20px 0;
+    width: calc(100% - 40px);
+    padding: 13px;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-back:active { opacity: 0.7; }
 </style>
 </head>
 <body>
-  <h1>Swing<span>IQ</span> v2</h1>
-  <p style="color:#888;font-size:13px">Backend-powered analysis. Consistent across all devices.</p>
-  
-  <div class="upload-area">
-    <p>Upload swing video</p>
-    <input type="file" id="videoInput" accept="video/mp4,video/quicktime,.mov,.mp4">
+
+<div class="header">
+  <div class="logo">Swing<span>IQ</span></div>
+  <div class="badge">v2 BETA</div>
+</div>
+
+<!-- Upload Screen -->
+<div id="uploadScreen">
+  <div style="padding: 16px 20px 0">
+    <p style="font-size:13px;color:var(--muted);line-height:1.5">
+      Upload video swing kamu. Analisis dilakukan di server — konsisten di semua device.
+    </p>
   </div>
-  
-  <select id="club" style="width:100%;padding:10px;margin:5px 0;background:#1a1a1a;color:#fff;border:1px solid #333;border-radius:6px">
-    <option value="iron">Iron</option>
-    <option value="driver">Driver</option>
-  </select>
-  
-  <select id="view" style="width:100%;padding:10px;margin:5px 0;background:#1a1a1a;color:#fff;border:1px solid #333;border-radius:6px">
-    <option value="dtl">Down The Line</option>
-    <option value="face-on">Face On</option>
-  </select>
-  
-  <button onclick="analyze()">🎯 Analyze Swing</button>
-  <div class="status" id="status"></div>
-  <pre id="result" style="font-size:11px;background:#111;padding:10px;border-radius:8px;overflow-x:auto;display:none"></pre>
+
+  <div style="padding: 16px 20px 0">
+    <div class="upload-area" id="uploadArea">
+      <input type="file" id="videoInput" accept="video/mp4,video/quicktime,.mov,.mp4" onchange="onFileSelect(this)">
+      <div class="upload-icon">🎬</div>
+      <div class="upload-label">Pilih video swing</div>
+      <div class="upload-sub">MP4 atau MOV · Maks 100MB</div>
+      <div class="upload-file-name" id="fileName"></div>
+    </div>
+
+    <div class="row">
+      <div class="select-wrap">
+        <label>Club</label>
+        <select id="club">
+          <option value="iron">Iron</option>
+          <option value="driver">Driver</option>
+          <option value="wedge">Wedge</option>
+        </select>
+      </div>
+      <div class="select-wrap">
+        <label>Sudut Kamera</label>
+        <select id="view">
+          <option value="dtl">Down The Line</option>
+          <option value="face-on">Face On</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn-analyze" id="analyzeBtn" onclick="analyze()">🎯 Analisis Swing</button>
+  </div>
+</div>
+
+<!-- Loading Screen -->
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div class="loading-label">Menganalisis swing kamu...</div>
+  <div class="loading-sub" id="loadingStep">Mengekstrak frame dengan FFmpeg</div>
+</div>
+
+<!-- Result Screen -->
+<div id="resultScreen">
+
+  <div class="score-hero">
+    <div class="score-ring">
+      <div class="score-number" id="scoreNum">—</div>
+      <div class="score-label">Score</div>
+    </div>
+    <p class="score-insight" id="scoreInsight"></p>
+    <div class="score-time" id="scoreTime"></div>
+  </div>
+
+  <div class="focus-fault" id="focusBox">
+    <div class="fault-label">⚠ Fokus Utama</div>
+    <div class="fault-title" id="faultTitle"></div>
+    <div class="fault-sub" id="faultSub"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Analisis Per Fase</div>
+    <div class="phase-grid" id="phaseGrid"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Kelebihan</div>
+    <div class="pill-list" id="strengthList"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Area Perbaikan</div>
+    <div class="pill-list" id="improvList"></div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Saran Drill</div>
+    <div class="coach-box">
+      <div class="coach-drill" id="drillName"></div>
+      <div class="coach-text" id="drillFeel"></div>
+      <div class="coach-text" style="margin-top:6px" id="coachSays"></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Angle Analysis</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px 14px" id="angleTable"></div>
+  </div>
+
+  <button class="btn-back" onclick="reset()">← Analisis Video Lain</button>
+</div>
 
 <script>
+const loadingSteps = [
+  'Mengekstrak frame dengan FFmpeg...',
+  'Mendeteksi fase swing (Pass 1)...',
+  'Refining impact frame (P6)...',
+  'Menganalisis biomekanik...',
+  'Menghasilkan coaching insights...',
+];
+let stepInterval;
+
+function onFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const el = document.getElementById('fileName');
+  el.textContent = `✓ ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)`;
+  el.style.display = 'block';
+  document.getElementById('uploadArea').classList.add('active');
+}
+
+function show(id) {
+  ['uploadScreen','loadingScreen','resultScreen'].forEach(s => {
+    document.getElementById(s).style.display = s === id ? (id === 'uploadScreen' ? 'block' : 'block') : 'none';
+  });
+}
+
+function startLoadingSteps() {
+  let i = 0;
+  document.getElementById('loadingStep').textContent = loadingSteps[0];
+  stepInterval = setInterval(() => {
+    i = Math.min(i + 1, loadingSteps.length - 1);
+    document.getElementById('loadingStep').textContent = loadingSteps[i];
+  }, 8000);
+}
+
+function stopLoadingSteps() { clearInterval(stepInterval); }
+
 async function analyze() {
   const file = document.getElementById('videoInput').files[0];
-  if (!file) return alert('Select a video first');
-  
-  const status = document.getElementById('status');
-  const resultEl = document.getElementById('result');
-  status.textContent = 'Uploading & analyzing...';
-  resultEl.style.display = 'none';
-  
+  if (!file) return alert('Pilih video terlebih dahulu');
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+
+  show('loadingScreen');
+  startLoadingSteps();
+
   const formData = new FormData();
   formData.append('video', file);
   formData.append('club', document.getElementById('club').value);
   formData.append('view', document.getElementById('view').value);
-  
+
   try {
     const res = await fetch('/api/analyze', { method: 'POST', body: formData });
     const data = await res.json();
-    
+    stopLoadingSteps();
+
     if (data.error) {
-      status.textContent = 'Error: ' + data.error;
+      alert('Error: ' + data.error);
+      show('uploadScreen');
+      btn.disabled = false;
       return;
     }
-    
-    status.textContent = `Done in ${data.debug?.processingTime}s — Score: ${data.coaching?.overall_score}/100`;
-    resultEl.textContent = JSON.stringify(data, null, 2);
-    resultEl.style.display = 'block';
-    
+
+    renderResult(data);
+    show('resultScreen');
+
   } catch(e) {
-    status.textContent = 'Error: ' + e.message;
+    stopLoadingSteps();
+    alert('Gagal menghubungi server: ' + e.message);
+    show('uploadScreen');
+    btn.disabled = false;
   }
 }
+
+function statusClass(s) {
+  return s === 'good' ? 'status-good' : s === 'warn' ? 'status-warn' : 'status-bad';
+}
+
+function renderResult(data) {
+  const c = data.coaching;
+
+  // Score
+  document.getElementById('scoreNum').textContent = c.overall_score;
+  document.getElementById('scoreInsight').textContent = c.coach_insight;
+  document.getElementById('scoreTime').textContent = `Dianalisis dalam ${data.debug?.processingTime}s · ${data.video?.frameCount} frames · FFmpeg`;
+
+  // Focus fault
+  document.getElementById('faultTitle').textContent = c.focus_fault;
+  document.getElementById('faultSub').textContent = c.focus_sub;
+
+  // Phases
+  const phaseGrid = document.getElementById('phaseGrid');
+  phaseGrid.innerHTML = '';
+  (c.phases || []).forEach(p => {
+    const phaseData = data.phases?.[p.position];
+    const imgSrc = phaseData?.imageBase64
+      ? `data:image/jpeg;base64,${phaseData.imageBase64}`
+      : null;
+
+    const card = document.createElement('div');
+    card.className = 'phase-card';
+    card.innerHTML = `
+      ${imgSrc ? `<img class="phase-thumb" src="${imgSrc}" alt="${p.name}">` : `<div class="phase-thumb"></div>`}
+      <div class="phase-info">
+        <div class="phase-header">
+          <span class="phase-tag">${p.position}</span>
+          <span class="phase-name">${p.name}</span>
+          <span class="phase-score ${statusClass(p.status)}">${p.score}</span>
+        </div>
+        <div class="phase-feedback">${p.feedback}</div>
+      </div>
+    `;
+    phaseGrid.appendChild(card);
+  });
+
+  // Strengths
+  const strengthList = document.getElementById('strengthList');
+  strengthList.innerHTML = (c.strengths || []).map(s =>
+    `<span class="pill pill-good">✓ ${s}</span>`
+  ).join('');
+
+  // Improvements
+  const improvList = document.getElementById('improvList');
+  improvList.innerHTML = (c.improvements || []).map(s =>
+    `<span class="pill pill-bad">↑ ${s}</span>`
+  ).join('');
+
+  // Drill
+  document.getElementById('drillName').textContent = '📋 ' + (c.fix_drill || '');
+  document.getElementById('drillFeel').textContent = c.fix_feel || '';
+  document.getElementById('coachSays').textContent = c.coach_says || '';
+
+  // Angle table
+  const angleTable = document.getElementById('angleTable');
+  angleTable.innerHTML = (c.angle_analysis || []).map(a => `
+    <div class="angle-row">
+      <div class="angle-phase">${a.phase}</div>
+      <div class="angle-metric">${a.metric}</div>
+      <div>
+        <div class="angle-val ${statusClass(a.status)}">${a.value}</div>
+        <div class="angle-ideal">ideal ${a.ideal}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function reset() {
+  document.getElementById('videoInput').value = '';
+  document.getElementById('fileName').style.display = 'none';
+  document.getElementById('uploadArea').classList.remove('active');
+  document.getElementById('analyzeBtn').disabled = false;
+  show('uploadScreen');
+}
+
+// Init
+show('uploadScreen');
 </script>
 </body>
 </html>
