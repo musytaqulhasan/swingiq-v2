@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  swingiq:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - /tmp/swingiq-uploads:/tmp/swingiq-uploads
+    restart: unless-stopped
