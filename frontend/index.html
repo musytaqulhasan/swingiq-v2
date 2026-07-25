@@ -407,7 +407,7 @@ async function analyze() {
   formData.append('view', document.getElementById('view').value);
 
   try {
-    const res = await fetch('/api/analyze', { method: 'POST', body: formData });
+    const res = await fetch('https://swingiq-backend-575817182972.asia-southeast1.run.app/api/analyze', { method: 'POST', body: formData });
     const data = await res.json();
     stopLoadingSteps();
 
